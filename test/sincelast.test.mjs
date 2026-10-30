@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { ack, analyze, brief, parseSince } from "../sincelast.mjs";
+import { ack, analyze, brief, checkClaims, parseSince } from "../sincelast.mjs";
 
 const WORK = join(import.meta.dirname, "work");
 const REPO = join(WORK, "repo");
@@ -107,6 +107,38 @@ test("a test run inside a longer shell line is shown as the test part", () => {
     result(2, "t1", "6 ok"),
   ]));
   assert.equal(a.lastTest.shown, "node --test");
+});
+
+// Receipts for claims (v0.3, DESIGN-receipts.md).
+test("a claimed commit hash: pushed is ✓, unknown is ✗", () => {
+  fresh();
+  const head = git("rev-parse", "--short=7", "HEAD");
+  const marks = checkClaims(`Committed as \`${head}\`. Also pushed as \`deadbee\`.`, { repo: REPO, tests: [], edits: [], at: T0, commits: 1 });
+  assert.equal(marks[0].mark, "✓");
+  assert.equal(marks[1].mark, "✗");
+});
+
+test("'tests pass': ✓ after a passing run, ✗ when files changed after it, ✗ after a failure", () => {
+  const ctx = (tests, edits) => ({ repo: REPO, tests, edits, at: T0 + 10 * 60_000, commits: 0 });
+  const pass = [{ t: T0 + 60_000, ok: true, shown: "npm test" }];
+  assert.equal(checkClaims("All tests pass.", ctx(pass, []))[0].mark, "✓");
+  assert.equal(checkClaims("All tests pass.", ctx(pass, [{ t: T0 + 120_000, file: "src/x.ts" }]))[0].mark, "✗");
+  assert.equal(checkClaims("All tests pass.", ctx([{ t: T0 + 60_000, ok: false, shown: "npm test" }], []))[0].mark, "✗");
+  assert.equal(checkClaims("All tests pass.", ctx([], []))[0].mark, "?");
+});
+
+test("'working tree clean' is checked against git status", () => {
+  fresh();
+  assert.equal(checkClaims("The working tree is clean.", { repo: REPO, tests: [], edits: [], at: T0, commits: 0 })[0].mark, "✓");
+  writeFileSync(join(REPO, "dirty.txt"), "x");
+  assert.equal(checkClaims("The working tree is clean.", { repo: REPO, tests: [], edits: [], at: T0, commits: 0 })[0].mark, "✗");
+});
+
+test("unverifiable completion claims get ?, hypotheticals and chat get nothing", () => {
+  const ctx = { repo: REPO, tests: [], edits: [], at: T0, commits: 0 };
+  const marks = checkClaims("Fixed the race condition. This would be committed later. Happy to help!", ctx);
+  assert.equal(marks.length, 1);
+  assert.equal(marks[0].mark, "?");
 });
 
 test("a failure fixed later doesn't need you", () => {
