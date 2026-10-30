@@ -69,6 +69,10 @@ export function gitObserved(repo, cursor) {
 // ---------- transcripts ----------
 
 const TEST_COMMAND = /\b(npm (run )?test|pnpm test|yarn test|bun test|node --test|npx (jest|vitest)|jest|vitest|pytest|python -m (pytest|unittest)|go test|cargo test|make test|rspec|phpunit|mix test|dotnet test)\b/;
+// Commands whose failure matters even mid-session: builds, linters, type checks.
+const CHECK_COMMAND = /\b(lint|eslint|biome|ruff|mypy|tsc|typecheck|type-check|build|clippy|cargo (build|check)|go (build|vet)|npm run check)\b/;
+// A tool call a hook or permission system refused: not a failure for a human to fix.
+const BLOCKED = /hook error|PreToolUse|blocked by (a )?hook|permission (was )?denied for this tool|user (denied|rejected) (this|the) tool/i;
 const EDIT_TOOLS = new Set(["Edit", "Write", "MultiEdit", "NotebookEdit"]);
 const PERSON_TOOLS = new Set(["AskUserQuestion", "ExitPlanMode"]);
 
@@ -126,7 +130,9 @@ export function analyze(entries) {
 
   const tests = [];
   const failures = new Map(); // command -> latest failed run, cleared by a later success
+  const lastBash = new Map(); // session -> id of its last shell command
   const needs = [];
+  let blocked = 0;
   for (const [id, call] of calls) {
     const result = results.get(id);
     if (PERSON_TOOLS.has(call.name) && !result) {
@@ -134,19 +140,30 @@ export function analyze(entries) {
       continue;
     }
     if (call.name !== "Bash" || !result) continue;
+    if (result.isError && BLOCKED.test(result.text)) {
+      blocked++;
+      continue;
+    }
+    lastBash.set(call.session, id);
     const command = String(call.input.command ?? "");
-    const run = { command, ok: !result.isError, t: result.t, session: call.session, tail: clip(result.text.split("\n").slice(-3).join(" "), 120) };
-    if (TEST_COMMAND.test(command)) tests.push(run);
+    const test = TEST_COMMAND.exec(command);
+    const run = { id, command, ok: !result.isError, t: result.t, session: call.session, tail: clip(result.text.split("\n").slice(-3).join(" "), 120) };
+    if (test) tests.push({ ...run, shown: test[0] });
     if (run.ok) failures.delete(command);
     else failures.set(command, run);
   }
+  // Agents try things that fail all the time. A failure needs a human only if
+  // it's a test, build or check that never passed afterwards, or the last
+  // thing a session did.
   for (const f of failures.values()) {
-    needs.push({ what: `\`${clip(f.command, 70)}\` failed and wasn't fixed afterwards`, detail: f.tail, session: f.session });
+    const matters = TEST_COMMAND.test(f.command) || CHECK_COMMAND.test(f.command) || lastBash.get(f.session) === f.id;
+    if (matters) needs.push({ what: `\`${clip(f.command, 70)}\` failed and wasn't fixed afterwards`, detail: f.tail, session: f.session });
   }
   const lastTest = tests.at(-1) ?? null;
   return {
     lastTest: lastTest && { ...lastTest, stale: lastEditAt > lastTest.t },
     testCount: tests.length,
+    blocked,
     claims: [...lastSaid].map(([session, s]) => ({ session, text: s.text, t: s.t })),
     needs,
   };
@@ -208,8 +225,9 @@ export function brief(opts, now = Date.now()) {
   if (g.dirty.length) lines.push(`  · ${g.dirty.length} uncommitted change${g.dirty.length === 1 ? "" : "s"}: ${g.dirty.slice(0, 3).map((d) => d.slice(3)).join(", ")}${g.dirty.length > 3 ? ", …" : ""}`);
   if (a.lastTest) {
     const t = a.lastTest;
-    lines.push(`  · last test run ${t.ok ? "passed" : "FAILED"}: ${clip(t.command, 60)}${t.stale ? " (files were edited after it, so it may not hold now)" : ""}`);
+    lines.push(`  · last test run ${t.ok ? "passed" : "FAILED"}: ${t.shown}${t.stale ? " (files were edited after it, so it may not hold now)" : ""}`);
   } else lines.push("  · no test runs recorded");
+  if (a.blocked) lines.push(`  · ${a.blocked} command${a.blocked === 1 ? " was" : "s were"} blocked by a hook or permission rule`);
 
   lines.push("", "Claimed (the agent's own words, not checked)");
   if (a.claims.length === 0) lines.push("  · nothing said");
