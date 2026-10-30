@@ -353,7 +353,8 @@ export function runCheck(opts, now = () => Date.now()) {
     return 2;
   }
   const command = opts.run.join(" ");
-  const r = spawnSync(command, { shell: true, stdio: "inherit", cwd: opts.repo });
+  // Run where the agent ran it; only the record belongs to the whole repo.
+  const r = spawnSync(command, { shell: true, stdio: "inherit", cwd: process.cwd() });
   const code = r.status ?? 1;
   const state = loadState(opts.state);
   const repo = (state.repos[opts.repo] ??= {});

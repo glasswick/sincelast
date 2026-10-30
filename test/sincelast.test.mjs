@@ -270,3 +270,17 @@ test("a subfolder of a repo resolves to the repo's top level", () => {
   assert.equal(parseArgs(["check", "x"]).repo, parseArgs(["check", "x"]).repo); // cwd-based, stable
   assert.equal(parseArgs([join(REPO, "sub")]).repo, parseArgs([REPO]).repo);
 });
+
+test("check runs the command in the current folder, not the repo root", () => {
+  fresh();
+  const sub = join(REPO, "sub");
+  mkdirSync(sub, { recursive: true });
+  writeFileSync(join(sub, "here.txt"), "x");
+  const cwd = process.cwd();
+  process.chdir(sub);
+  try {
+    assert.equal(runCheck({ ...opts(), run: ["test -f here.txt"] }, () => T0), 0);
+  } finally {
+    process.chdir(cwd);
+  }
+});
