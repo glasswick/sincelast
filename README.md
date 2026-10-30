@@ -137,8 +137,8 @@ Receipts are that evidence, kept.
   benchmark's hidden tests, and within the same task a run with a receipt
   was no more often right than one whose check had gone stale (47 vs 45
   discordant pairs). Receipts keep reports honest about what was checked;
-  what the check covered is still up to you. Write-up coming on
-  [glasswick.github.io](https://glasswick.github.io).
+  what the check covered is still up to you. The write-up:
+  [a receipt is not the truth](https://glasswick.github.io/2026/10/30/a-receipt-is-not-the-truth.html).
 - "Failed" means the tool result was marked as an error. "Test" means the
   command looked like a test runner (npm test, pytest, go test, …). Ad-hoc
   checks (a script that exits 0) aren't counted yet.
