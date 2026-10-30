@@ -352,7 +352,10 @@ export function runCheck(opts, now = () => Date.now()) {
     console.error("usage: sincelast check -- <command>");
     return 2;
   }
-  const command = opts.run.join(" ");
+  // One argument is a shell line, as typed. Several are separate words,
+  // quoted so a query like q='label:"x"' reaches the program intact.
+  const shq = (a) => (/^[\w@%+=:,./-]+$/.test(a) ? a : "'" + a.replace(/'/g, "'\\''") + "'");
+  const command = opts.run.length === 1 ? opts.run[0] : opts.run.map(shq).join(" ");
   // Run where the agent ran it; only the record belongs to the whole repo.
   const r = spawnSync(command, { shell: true, stdio: "inherit", cwd: process.cwd() });
   const code = r.status ?? 1;

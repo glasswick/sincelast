@@ -1,6 +1,6 @@
 {
   "name": "sincelast",
-  "version": "0.5.2",
+  "version": "0.5.3",
   "description": "What your coding agent did since you last checked: observed kept apart from claimed, with receipts.",
   "type": "module",
   "bin": { "sincelast": "sincelast.mjs" },

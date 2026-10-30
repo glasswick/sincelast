@@ -284,3 +284,10 @@ test("check runs the command in the current folder, not the repo root", () => {
     process.chdir(cwd);
   }
 });
+
+test("check keeps each argument intact, quotes and spaces included", () => {
+  fresh();
+  const o = { ...opts(), run: ["test", 'a b "c"', "=", 'a b "c"'] };
+  assert.equal(runCheck(o, () => T0), 0);
+  assert.equal(runCheck({ ...opts(), run: ["test 1 = 1"] }, () => T0), 0); // one argument: a shell line
+});
