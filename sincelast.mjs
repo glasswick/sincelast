@@ -12,7 +12,7 @@
 // Options: --since <date>, --transcripts <dir>, --state <file>.
 // Made by Glasswick, an AI agent. MIT license. No dependencies (Node 18+).
 
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { homedir } from "node:os";
@@ -23,6 +23,12 @@ import { dirname, join, resolve } from "node:path";
 export function parseArgs(argv) {
   const opts = { command: "brief", repo: process.cwd(), since: null, transcripts: null, state: null };
   const rest = [];
+  // `check` takes the rest of the line, untouched, as the command to run.
+  if (argv[0] === "check") {
+    opts.command = "check";
+    opts.run = argv.slice(argv[1] === "--" ? 2 : 1);
+    argv = [];
+  }
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--since") opts.since = argv[++i];
@@ -304,7 +310,7 @@ export function changedSince(repo, t) {
  * Receipts an agent can end a report with: computed from git and the
  * transcript, never from memory, and checkable by checkClaims later.
  */
-export function receipts(repo, a, now = Date.now()) {
+export function receipts(repo, a, now = Date.now(), declared = []) {
   const hhmm = (t) => new Date(t).toTimeString().slice(0, 5);
   const out = [];
   const head = git(repo, "rev-parse", "--short=7", "HEAD");
@@ -314,7 +320,7 @@ export function receipts(repo, a, now = Date.now()) {
   }
   const dirty = (git(repo, "status", "--short") ?? "").split("\n").filter(Boolean);
   out.push(dirty.length ? `working tree: ${dirty.length} uncommitted (${dirty.slice(0, 3).map((d) => d.slice(3)).join(", ")}${dirty.length > 3 ? ", …" : ""})` : "working tree: clean");
-  const run = a.tests.filter((r) => r.t <= now).at(-1);
+  const run = withDeclared(a.tests, declared).filter((r) => r.t <= now).at(-1);
   if (!run) out.push("last check: none recorded");
   else if (run.pending) out.push(`last check: \`${run.shown}\` still running`);
   else {
@@ -322,6 +328,35 @@ export function receipts(repo, a, now = Date.now()) {
     out.push(`last check: \`${run.shown}\` ${run.ok ? "passed" : "failed"} at ${hhmm(run.t)}, ${after.length ? `but ${after.at(-1)} was edited after` : "nothing edited after"}`);
   }
   return out;
+}
+
+// ---------- declared checks ----------
+
+/**
+ * Checks an agent ran through `sincelast check`, merged with the test runs
+ * found in the transcript, oldest first. A script that exits 0 is as much a
+ * check as `npm test`, but no pattern can tell which scripts are checks, so
+ * the agent says so by running it through sincelast.
+ */
+export function withDeclared(tests, declared) {
+  const shown = (c) => (c.length > 60 ? c.slice(0, 59) + "…" : c);
+  return [...tests, ...declared.map((d) => ({ ...d, shown: shown(d.command), declared: true }))].sort((x, y) => x.t - y.t);
+}
+
+/** Run a command as a check, record its result for this repo, return its exit code. */
+export function runCheck(opts, now = () => Date.now()) {
+  if (!opts.run?.length) {
+    console.error("usage: sincelast check -- <command>");
+    return 2;
+  }
+  const command = opts.run.join(" ");
+  const r = spawnSync(command, { shell: true, stdio: "inherit", cwd: opts.repo });
+  const code = r.status ?? 1;
+  const state = loadState(opts.state);
+  const repo = (state.repos[opts.repo] ??= {});
+  repo.checks = [...(repo.checks ?? []), { command, ok: code === 0, t: now() }].slice(-20);
+  saveState(opts.state, state);
+  return code;
 }
 
 // ---------- state ----------
@@ -367,6 +402,8 @@ export function brief(opts, now = Date.now()) {
   }
   const g = gitObserved(opts.repo, cursor);
   const a = analyze(readTranscripts(opts.transcripts, cursor.at));
+  a.tests = withDeclared(a.tests, (state.repos[opts.repo]?.checks ?? []).filter((c) => c.t >= Date.parse(cursor.at)));
+  if (a.tests.length) a.lastTest = { ...a.tests.at(-1), stale: a.edits.some((e) => e.t > a.tests.at(-1).t) };
 
   const lines = [];
   const label = opts.since ? `since ${opts.since}` : acked ? "since you last acked" : "in the last 24h (nothing acked yet)";
@@ -417,6 +454,9 @@ const HELP = `sincelast: what your coding agent did since you last checked.
 
   sincelast [repo]        briefing: observed, claimed, needs you
   sincelast ack [repo]    mark what was last shown as seen
+  sincelast check -- <cmd>  run any command as a check (a script, a
+                          validator, an install test) and record whether
+                          it passed, so receipts count it
   sincelast receipts      receipts to end an agent's report with (HEAD,
                           working tree, last check), from git and the
                           transcript; sincelast checks them when read back.
@@ -426,7 +466,7 @@ const HELP = `sincelast: what your coding agent did since you last checked.
   --transcripts <dir>     Claude Code transcript folder for the repo
   --state <file>          where the ack cursor lives
                           (default ~/.local/state/sincelast/state.json)
-Read only, except its own state file.`;
+Read only, except its own state file (and whatever you ask \`check\` to run).`;
 
 // Run directly, or through npx's symlink in node_modules/.bin: compare real paths.
 const invokedDirectly = (() => {
@@ -441,6 +481,8 @@ if (invokedDirectly) {
   if (opts.command === "receipts") {
     // The last day of this repo's transcripts is enough to find the last check.
     const a = analyze(readTranscripts(opts.transcripts, new Date(Date.now() - 24 * 3600_000).toISOString()));
-    console.log(["Receipts (from git and the transcript, by sincelast):", ...receipts(opts.repo, a).map((l) => `- ${l}`)].join("\n"));
-  } else console.log(opts.command === "help" ? HELP : opts.command === "ack" ? ack(opts) : brief(opts));
+    const declared = loadState(opts.state).repos[opts.repo]?.checks ?? [];
+    console.log(["Receipts (from git and the transcript, by sincelast):", ...receipts(opts.repo, a, Date.now(), declared).map((l) => `- ${l}`)].join("\n"));
+  } else if (opts.command === "check") process.exitCode = runCheck(opts);
+  else console.log(opts.command === "help" ? HELP : opts.command === "ack" ? ack(opts) : brief(opts));
 }

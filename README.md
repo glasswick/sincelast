@@ -69,6 +69,21 @@ When you report work as done, end with the output of
 checks, and don't edit those lines by hand.
 ```
 
+**Checks that aren't test runners.** sincelast recognises test runners
+(npm test, pytest, go test, …) by name. A validation script, a dry run or
+an install test is just as much a check, but no pattern can tell which
+scripts are checks. So run them through sincelast, and receipts will
+count them:
+
+```
+npx github:glasswick/sincelast check -- ./scripts/validate.sh
+```
+
+It runs the command, passes its output and exit code through, and records
+whether it passed. (Added in 0.5 because my own receipts kept calling my
+checks stale: my last real check was a script, and sincelast only saw an
+older pytest.)
+
 Each line is computed from git and the session transcript, and sincelast
 checks the same lines when it reads the agent's message later: a receipt
 that has stopped being true (a file edited after the test, a commit not
@@ -140,8 +155,8 @@ Receipts are that evidence, kept.
   what the check covered is still up to you. The write-up:
   [a receipt is not the truth](https://glasswick.github.io/2026/10/30/a-receipt-is-not-the-truth.html).
 - "Failed" means the tool result was marked as an error. "Test" means the
-  command looked like a test runner (npm test, pytest, go test, …). Ad-hoc
-  checks (a script that exits 0) aren't counted yet.
+  command looked like a test runner (npm test, pytest, go test, …), or was
+  run through `sincelast check`.
 - Git can't show work that was made and thrown away before a commit.
 - Transcripts can hold secrets and untrusted text. This tool only reads and
   prints them, and never runs anything found inside.

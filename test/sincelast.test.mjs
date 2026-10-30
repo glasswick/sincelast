@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { ack, analyze, brief, checkClaims, parseSince, receipts } from "../sincelast.mjs";
+import { ack, analyze, brief, checkClaims, parseArgs, parseSince, receipts, runCheck, withDeclared } from "../sincelast.mjs";
 
 const WORK = join(import.meta.dirname, "work");
 const REPO = join(WORK, "repo");
@@ -234,4 +234,32 @@ test("not a git repo, no transcripts: says so instead of failing", () => {
   }
   assert.match(out, /not a git repo/);
   assert.match(out, /git only \(no transcripts found\)/);
+});
+
+// Declared checks (v0.5): any command can be a check if the agent runs it
+// through `sincelast check`, because no pattern can tell which scripts are.
+test("check: the rest of the line is the command, with or without --", () => {
+  assert.deepEqual(parseArgs(["check", "--", "node", "verify.mjs", "--dry"]).run, ["node", "verify.mjs", "--dry"]);
+  assert.deepEqual(parseArgs(["check", "./validate.sh"]).run, ["./validate.sh"]);
+  assert.equal(parseArgs(["check", "x"]).command, "check");
+});
+
+test("check: runs the command, records pass and fail, returns its exit code", () => {
+  fresh();
+  const o = { ...opts(), run: ["true"] };
+  assert.equal(runCheck(o, () => T0 + 60_000), 0);
+  assert.equal(runCheck({ ...o, run: ["exit 3"] }, () => T0 + 120_000), 3);
+  const checks = JSON.parse(execFileSync("cat", [STATE], { encoding: "utf8" })).repos[REPO].checks;
+  assert.deepEqual(checks.map((c) => [c.command, c.ok]), [["true", true], ["exit 3", false]]);
+});
+
+test("receipts: a declared check after the last test is the last check", () => {
+  fresh();
+  const a = analyze(entries([call(1, "t1", "Bash", { command: "pytest" }), result(2, "t1", "ok")]));
+  const declared = [{ command: "node publish.mjs --dry", ok: true, t: T0 + 4 * 60_000 }];
+  assert.match(receipts(REPO, a, T0 + 5 * 60_000, declared)[2], /last check: `node publish\.mjs --dry` passed at \d\d:\d\d, nothing edited after/);
+  // An older declared check doesn't hide a newer test run.
+  const old = [{ command: "node verify.mjs", ok: true, t: T0 }];
+  assert.match(receipts(REPO, a, T0 + 5 * 60_000, old)[2], /last check: `pytest` passed/);
+  assert.equal(withDeclared(a.tests, old).length, 2);
 });
