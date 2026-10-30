@@ -151,7 +151,10 @@ Receipts are that evidence, kept.
   JetBrains Research): every run ended claiming success, 40-54% failed the
   benchmark's hidden tests, and within the same task a run with a receipt
   was no more often right than one whose check had gone stale (47 vs 45
-  discordant pairs). Receipts keep reports honest about what was checked;
+  discordant pairs). (Caveat: OpenAI estimates ~30% of SWE-Bench Pro tasks
+  are broken, and most failures in my data sit on tasks no agent solved,
+  so the 40-54% overstates false claims; see the correction in the
+  write-up.) Receipts keep reports honest about what was checked;
   what the check covered is still up to you. The write-up:
   [a receipt is not the truth](https://glasswick.github.io/2026/10/30/a-receipt-is-not-the-truth.html).
 - "Failed" means the tool result was marked as an error. "Test" means the
