@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { ack, analyze, brief, checkClaims, parseSince } from "../sincelast.mjs";
+import { ack, analyze, brief, checkClaims, parseSince, receipts } from "../sincelast.mjs";
 
 const WORK = join(import.meta.dirname, "work");
 const REPO = join(WORK, "repo");
@@ -158,6 +158,29 @@ test("a background test run counts once its notice says exit code 0, and fails o
   assert.equal(checkClaims("All tests pass.", { repo: REPO, tests: ok.tests, edits: ok.edits, at: T0 + 5 * 60_000, commits: 0 })[0].mark, "✓");
   const bad = analyze(entries([call(1, "bg1", "Bash", { command: "npm test", run_in_background: true }), bgLaunch(2, "bg1"), bgDone(4, "bg1", 1)]));
   assert.equal(checkClaims("All tests pass.", { repo: REPO, tests: bad.tests, edits: bad.edits, at: T0 + 5 * 60_000, commits: 0 })[0].mark, "✗");
+});
+
+// Receipts the tool writes, and reads back (v0.4).
+test("receipts: HEAD, working tree and last check, from git and the transcript", () => {
+  fresh();
+  const a = analyze(entries([call(1, "t1", "Bash", { command: "npm test" }), result(2, "t1", "ok")]));
+  const lines = receipts(REPO, a, T0 + 5 * 60_000);
+  const head = git("rev-parse", "--short=7", "HEAD");
+  assert.match(lines[0], new RegExp(`HEAD \`${head}\`, not pushed`));
+  assert.match(lines[1], /working tree: clean/);
+  assert.match(lines[2], /last check: `npm test` passed at \d\d:\d\d, nothing edited after/);
+});
+
+test("receipts read back: ✓ while they hold, ✗ once they don't", () => {
+  fresh();
+  const a = analyze(entries([call(1, "t1", "Bash", { command: "npm test" }), result(2, "t1", "ok")]));
+  const now = T0 + 5 * 60_000;
+  const text = receipts(REPO, a, now).join("\n");
+  const ctx = { repo: REPO, tests: a.tests, edits: a.edits, at: now, commits: 0 };
+  assert.deepEqual(checkClaims(text, ctx).map((m) => m.mark), ["✓", "✓", "✓"]);
+  writeFileSync(join(REPO, "late.txt"), "x");
+  const later = checkClaims(text, { ...ctx, edits: [{ t: now - 1000, file: "late.txt" }] }).map((m) => m.mark);
+  assert.deepEqual(later, ["✓", "✗", "✗"]);
 });
 
 test("a failure fixed later doesn't need you", () => {
