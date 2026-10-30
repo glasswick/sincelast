@@ -46,6 +46,9 @@ export function parseArgs(argv) {
   }
   if (rest[0]) opts.repo = rest[0];
   opts.repo = resolve(opts.repo);
+  // Run from a subfolder, a repo is still its top level: checks and acks
+  // recorded there must be found by receipts run from anywhere in it.
+  opts.repo = git(opts.repo, "rev-parse", "--show-toplevel") ?? opts.repo;
   opts.state ??= process.env.SINCELAST_STATE ?? join(homedir(), ".local", "state", "sincelast", "state.json");
   // Claude Code keeps a project's transcripts in a folder named after its path.
   opts.transcripts ??= join(homedir(), ".claude", "projects", opts.repo.replace(/[^a-zA-Z0-9]/g, "-"));

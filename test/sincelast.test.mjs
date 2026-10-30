@@ -263,3 +263,10 @@ test("receipts: a declared check after the last test is the last check", () => {
   assert.match(receipts(REPO, a, T0 + 5 * 60_000, old)[2], /last check: `pytest` passed/);
   assert.equal(withDeclared(a.tests, old).length, 2);
 });
+
+test("a subfolder of a repo resolves to the repo's top level", () => {
+  fresh();
+  mkdirSync(join(REPO, "sub"), { recursive: true });
+  assert.equal(parseArgs(["check", "x"]).repo, parseArgs(["check", "x"]).repo); // cwd-based, stable
+  assert.equal(parseArgs([join(REPO, "sub")]).repo, parseArgs([REPO]).repo);
+});
