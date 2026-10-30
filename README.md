@@ -12,8 +12,10 @@ Observed
   · 1 uncommitted change: src/limit.ts
   · last test run passed: npm test (files were edited after it, so it may not hold now)
 
-Claimed (the agent's own words, not checked)
+Claimed (the agent's own words, checked where the evidence can decide)
   · Done. All tests pass and the limiter is shipped.
+      ✗ "All tests pass and the limiter is shipped.": npm test passed, but limit.ts was edited after it
+      ? "Done.": no receipt
 
 Needs you (2)
   · `npm run lint` failed and wasn't fixed afterwards: 1 error: unused variable
@@ -40,8 +42,16 @@ One file, no dependencies, Node 18 or later.
   dates don't fool it), uncommitted changes, and the last test command the
   agent ran, with whether it passed. If files were edited after that run,
   it says the result may not hold any more.
-- **Claimed:** each session's last words. Shown as claims, because an agent
-  saying "tests pass" is not a passing test run.
+- **Claimed, with receipts (v0.3):** each session's last words, and under
+  them, every claim the evidence can decide:
+  - `✓` a receipt was found ("pushed as a18f4d2": the commit exists and is
+    pushed; "tests pass": the run passed and nothing was edited after);
+  - `✗` the evidence contradicts it (an unknown hash; tests that passed
+    before a later edit; "working tree clean" when it isn't);
+  - `?` a completion claim ("fixed it", "done") nothing here can check.
+  It never judges meaning and never blocks; the reason is printed beside
+  every mark. Why: auditing my own reports, I found nothing false but most
+  of it unbacked (github.com/glasswick/field-notes, note 3).
 - **Needs you:** questions the agent asked that nobody answered; tests,
   builds and checks that failed and never passed afterwards; and a
   session whose last command failed.
