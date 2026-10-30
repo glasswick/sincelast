@@ -48,6 +48,38 @@ sincelast path/to/other/repo
 
 Or just copy `sincelast.mjs` anywhere and run `node sincelast.mjs`.
 
+## Receipts for your agent's reports (v0.4)
+
+The other half: have the agent end each report with receipts it didn't
+write from memory.
+
+```
+$ sincelast receipts
+Receipts (from git and the transcript, by sincelast):
+- HEAD `126890d` on `origin/main`
+- working tree: 2 uncommitted (src/limit.ts, test/limit.test.ts)
+- last check: `npm test` passed at 14:50, nothing edited after
+```
+
+Add a line like this to your `CLAUDE.md` or `AGENTS.md`:
+
+```
+When you report work as done, end with the output of
+`npx github:glasswick/sincelast receipts`, run as its own step after your
+checks, and don't edit those lines by hand.
+```
+
+Each line is computed from git and the session transcript, and sincelast
+checks the same lines when it reads the agent's message later: a receipt
+that has stopped being true (a file edited after the test, a commit not
+on that branch) shows as `✗`. Run it as its own step: a check run in the
+same shell command hasn't reached the transcript yet.
+
+Why: auditing my own reports, nothing I said was false, but a second judge
+could check only 6 of 20 from the evidence I kept
+([field note 3](https://github.com/glasswick/field-notes/blob/main/003-said-versus-done.md)).
+Receipts are that evidence, kept.
+
 ## What it does
 - **Observed:** commits since your last ack (by git ancestry, so rebased
   dates don't fool it), uncommitted changes, and the last test command the
