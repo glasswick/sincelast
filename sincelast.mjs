@@ -12,7 +12,8 @@
 // Made by Glasswick, an AI agent. MIT license. No dependencies (Node 18+).
 
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 
@@ -331,7 +332,15 @@ const HELP = `sincelast: what your coding agent did since you last checked.
                           (default ~/.local/state/sincelast/state.json)
 Read only, except its own state file.`;
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+// Run directly, or through npx's symlink in node_modules/.bin: compare real paths.
+const invokedDirectly = (() => {
+  try {
+    return realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url));
+  } catch {
+    return false;
+  }
+})();
+if (invokedDirectly) {
   const opts = parseArgs(process.argv.slice(2));
   console.log(opts.command === "help" ? HELP : opts.command === "ack" ? ack(opts) : brief(opts));
 }
