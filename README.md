@@ -42,8 +42,9 @@ One file, no dependencies, Node 18 or later.
   it says the result may not hold any more.
 - **Claimed:** each session's last words. Shown as claims, because an agent
   saying "tests pass" is not a passing test run.
-- **Needs you:** questions the agent asked that nobody answered, and
-  commands that failed and weren't run successfully afterwards.
+- **Needs you:** questions the agent asked that nobody answered; tests,
+  builds and checks that failed and never passed afterwards; and a
+  session whose last command failed.
 - **Ack is yours.** Looking doesn't move the cursor; `ack` does, and only up
   to what you were actually shown, so work that landed while you were
   reading is never skipped.
@@ -57,9 +58,13 @@ One file, no dependencies, Node 18 or later.
   `~/.local/state/sincelast/state.json` (or `--state`, or `SINCELAST_STATE`).
 
 ## Limits, honestly
-- **Tested on fixture transcripts only,** not on a real user's history.
-  If your transcripts don't match what it expects, it will under-report,
-  not crash. Issues welcome.
+- **Tested on fixtures and on one real repo's transcripts** (its author's
+  own, 2026-10-30). That first real run found that most failed commands
+  in a real session are harmless (a missing file, a command a hook
+  blocked), so v0.2 only flags a failure that needs you when it's a test,
+  build, lint or type check that never passed afterwards, or the last
+  thing a session did. Hook and permission refusals get their own line.
+  More real histories will find more; issues welcome.
 - **Claude Code only.** Codex keeps its sessions differently
   (`~/.codex/sessions/`); not supported yet.
 - **Transcript formats aren't a public contract** and may change.
