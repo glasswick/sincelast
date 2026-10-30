@@ -3,6 +3,7 @@
 //
 //   sincelast [repo]        the briefing (read only; remembers what it showed)
 //   sincelast ack [repo]    mark what was last shown as seen
+//   sincelast receipts      receipts to end an agent's report with
 //
 // Observed comes from git and from recorded command results. Claimed is what
 // the agent said. They're kept apart on purpose: an agent saying "tests pass"
@@ -30,7 +31,10 @@ export function parseArgs(argv) {
     else if (a === "-h" || a === "--help") opts.command = "help";
     else rest.push(a);
   }
-  if (rest[0] === "ack") {
+  if (rest[0] === "receipts") {
+    opts.command = "receipts";
+    rest.shift();
+  } else if (rest[0] === "ack") {
     opts.command = "ack";
     rest.shift();
   }
@@ -208,8 +212,10 @@ const CLAIM_SENTENCES = (text) =>
     .map((s) => s.replace(/\*\*/g, "").trim())
     .filter((s) => s.length > 3);
 
+const HEAD_RECEIPT = /\bHEAD `([0-9a-f]{7,40})`(?:, (not pushed)| on `([^`]+)`)/;
+const CHECK_RECEIPT = /\blast check: `([^`]+)` (passed|failed)\b/;
 const PASS_CLAIM = /\b(tests? (all |still )?pass(es|ed)?|all \d+ (tests )?pass|\d+ tests? pass|build (passes|passed|succeeds|succeeded)|lint (passes|is clean)|type ?check(s)? pass(es)?)\b/i;
-const CLEAN_CLAIM = /\b(working tree (is )?clean|nothing (is )?uncommitted|no uncommitted changes|git status (is )?clean)\b/i;
+const CLEAN_CLAIM = /\b(working tree:? (is )?clean|nothing (is )?uncommitted|no uncommitted changes|git status( --short)?`? (is )?clean)\b/i;
 const DONE_CLAIM = /\b(done|fixed|implemented|resolved|completed|works now|it works)\b/i;
 const HYPOTHETICAL = /\b(would|could|might|should)\b|^if\b/i;
 
@@ -223,6 +229,29 @@ export function checkClaims(text, ctx) {
   const marks = [];
   for (const s of CLAIM_SENTENCES(text)) {
     if (HYPOTHETICAL.test(s)) continue;
+    // sincelast's own receipt lines, read back exactly.
+    const head = HEAD_RECEIPT.exec(s);
+    if (head) {
+      const [, h, notPushed, remote] = head;
+      const exists = git(ctx.repo, "cat-file", "-e", `${h}^{commit}`) !== null;
+      const on = (git(ctx.repo, "branch", "-r", "--contains", h) ?? "").split("\n").map((l) => l.trim()).filter((l) => l && !l.includes("->"));
+      if (!exists) marks.push({ mark: "✗", s, why: `no commit ${h} in this repo` });
+      else if (remote && !on.includes(remote)) marks.push({ mark: "✗", s, why: `${h} isn't on ${remote}` });
+      else marks.push({ mark: "✓", s, why: notPushed ? `${h} exists` : `${h} is on ${remote}` });
+      continue;
+    }
+    const check = CHECK_RECEIPT.exec(s);
+    if (check) {
+      const [, cmd, said] = check;
+      const run = ctx.tests.filter((r) => r.t <= ctx.at && (r.shown === cmd || r.command === cmd)).at(-1);
+      const after = run ? ctx.edits.filter((e) => e.t > run.t && e.t <= ctx.at) : [];
+      if (!run) marks.push({ mark: "✗", s, why: `no run of ${cmd} found` });
+      else if (run.pending) marks.push({ mark: "✗", s, why: `${cmd} is still running` });
+      else if ((said === "passed") !== run.ok) marks.push({ mark: "✗", s, why: `${cmd} ${run.ok ? "passed" : "failed"}, not ${said}` });
+      else if (said === "passed" && after.length && /nothing edited after/.test(s)) marks.push({ mark: "✗", s, why: `${after.at(-1).file} was edited after it` });
+      else marks.push({ mark: "✓", s, why: `${cmd} ${said}${after.length ? "" : ", nothing edited after"}` });
+      continue;
+    }
     const hashes = [...s.matchAll(/`([0-9a-f]{7,40})`/g)].map((m) => m[1]);
     if (hashes.length && /\b(commit|committed|pushed|as)\b/i.test(s)) {
       const pushedSaid = /\bpushed\b/i.test(s);
@@ -253,6 +282,30 @@ export function checkClaims(text, ctx) {
     if (DONE_CLAIM.test(s)) marks.push({ mark: "?", s, why: "no receipt" });
   }
   return marks;
+}
+
+/**
+ * Receipts an agent can end a report with: computed from git and the
+ * transcript, never from memory, and checkable by checkClaims later.
+ */
+export function receipts(repo, a, now = Date.now()) {
+  const hhmm = (t) => new Date(t).toTimeString().slice(0, 5);
+  const out = [];
+  const head = git(repo, "rev-parse", "--short=7", "HEAD");
+  if (head) {
+    const on = (git(repo, "branch", "-r", "--contains", "HEAD") ?? "").split("\n").map((l) => l.trim()).filter((l) => l && !l.includes("->"));
+    out.push(on.length ? `HEAD \`${head}\` on \`${on[0]}\`` : `HEAD \`${head}\`, not pushed`);
+  }
+  const dirty = (git(repo, "status", "--short") ?? "").split("\n").filter(Boolean);
+  out.push(dirty.length ? `working tree: ${dirty.length} uncommitted (${dirty.slice(0, 3).map((d) => d.slice(3)).join(", ")}${dirty.length > 3 ? ", …" : ""})` : "working tree: clean");
+  const run = a.tests.filter((r) => r.t <= now).at(-1);
+  if (!run) out.push("last check: none recorded");
+  else if (run.pending) out.push(`last check: \`${run.shown}\` still running`);
+  else {
+    const after = a.edits.filter((e) => e.t > run.t && e.t <= now);
+    out.push(`last check: \`${run.shown}\` ${run.ok ? "passed" : "failed"} at ${hhmm(run.t)}, ${after.length ? `but ${after.at(-1).file} was edited after` : "nothing edited after"}`);
+  }
+  return out;
 }
 
 // ---------- state ----------
@@ -348,6 +401,10 @@ const HELP = `sincelast: what your coding agent did since you last checked.
 
   sincelast [repo]        briefing: observed, claimed, needs you
   sincelast ack [repo]    mark what was last shown as seen
+  sincelast receipts      receipts to end an agent's report with (HEAD,
+                          working tree, last check), from git and the
+                          transcript; sincelast checks them when read back.
+                          Run it as its own step, after your checks.
 
   --since <date>          look from a date instead of your last ack
   --transcripts <dir>     Claude Code transcript folder for the repo
@@ -365,5 +422,9 @@ const invokedDirectly = (() => {
 })();
 if (invokedDirectly) {
   const opts = parseArgs(process.argv.slice(2));
-  console.log(opts.command === "help" ? HELP : opts.command === "ack" ? ack(opts) : brief(opts));
+  if (opts.command === "receipts") {
+    // The last day of this repo's transcripts is enough to find the last check.
+    const a = analyze(readTranscripts(opts.transcripts, new Date(Date.now() - 24 * 3600_000).toISOString()));
+    console.log(["Receipts (from git and the transcript, by sincelast):", ...receipts(opts.repo, a).map((l) => `- ${l}`)].join("\n"));
+  } else console.log(opts.command === "help" ? HELP : opts.command === "ack" ? ack(opts) : brief(opts));
 }
