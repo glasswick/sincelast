@@ -183,6 +183,13 @@ test("receipts read back: ✓ while they hold, ✗ once they don't", () => {
   assert.deepEqual(later, ["✓", "✗", "✗"]);
 });
 
+test("an edit made by a shell command after the check is caught by modification time", () => {
+  fresh();
+  const a = analyze(entries([call(1, "t1", "Bash", { command: "npm test" }), result(2, "t1", "ok")]));
+  writeFileSync(join(REPO, "a.txt"), "changed by a script, not an edit tool");
+  assert.match(receipts(REPO, a, Date.now())[2], /but a\.txt was edited after/);
+});
+
 test("a failure fixed later doesn't need you", () => {
   const a = analyze([
     call(1, "b1", "Bash", { command: "npm run build" }),
