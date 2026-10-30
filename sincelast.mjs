@@ -75,6 +75,10 @@ const CHECK_COMMAND = /\b(lint|eslint|biome|ruff|mypy|tsc|typecheck|type-check|b
 // A tool call a hook or permission system refused: not a failure for a human to fix.
 const BLOCKED = /hook error|PreToolUse|blocked by (a )?hook|permission (was )?denied for this tool|user (denied|rejected) (this|the) tool/i;
 const EDIT_TOOLS = new Set(["Edit", "Write", "MultiEdit", "NotebookEdit"]);
+// Claude Code's reply when a command is started in the background, and the
+// notice that arrives when it ends. The launch is not the result.
+const BACKGROUND_LAUNCH = /^Command running in background with ID: ([\w-]+)/;
+const TASK_DONE = /<task-id>([\w-]+)<\/task-id>[\s\S]*?<status>(\w+)<\/status>(?:[\s\S]*?\(exit code (\d+)\))?/g;
 const PERSON_TOOLS = new Set(["AskUserQuestion", "ExitPlanMode"]);
 
 const parts = (e) => (Array.isArray(e?.message?.content) ? e.message.content : []);
@@ -117,6 +121,7 @@ export function analyze(entries) {
   const lastSaid = new Map(); // session -> { text, t }
   let lastEditAt = 0;
   const edits = []; // { t, file }, for checking "tests pass" claims
+  const finished = new Map(); // background task id -> { t, ok, code }
   for (const e of entries) {
     for (const p of parts(e)) {
       if (e.type === "assistant" && p.type === "tool_use") {
@@ -129,6 +134,14 @@ export function analyze(entries) {
         lastSaid.set(e._session, { text: p.text, t: e._t });
       } else if (e.type === "user" && p.type === "tool_result") {
         results.set(p.tool_use_id, { isError: p.is_error === true, text: text(p.content), t: e._t });
+      }
+    }
+    // A background command's result arrives later, as a notice in a prompt.
+    if (e.type === "user") {
+      const said = typeof e.message?.content === "string" ? e.message.content : parts(e).map((p) => p?.text ?? "").join("\n");
+      for (const m of said.matchAll(TASK_DONE)) {
+        const code = m[3] === undefined ? null : Number(m[3]);
+        finished.set(m[1], { t: e._t, ok: m[2] === "completed" && (code === null || code === 0), code });
       }
     }
   }
@@ -153,7 +166,16 @@ export function analyze(entries) {
     const command = String(call.input.command ?? "");
     const test = TEST_COMMAND.exec(command);
     const run = { id, command, ok: !result.isError, t: result.t, session: call.session, tail: clip(result.text.split("\n").slice(-3).join(" "), 120) };
+    // Launching a command in the background succeeds at once; its real
+    // result is the completion notice, if one has arrived.
+    const bg = BACKGROUND_LAUNCH.exec(result.text);
+    if (bg) {
+      const done = finished.get(bg[1]);
+      if (done) Object.assign(run, { ok: done.ok, t: done.t, background: true });
+      else Object.assign(run, { ok: null, pending: true, background: true });
+    }
     if (test) tests.push({ ...run, shown: test[0] });
+    if (run.pending) continue;
     if (run.ok) failures.delete(command);
     else failures.set(command, run);
   }
@@ -214,6 +236,7 @@ export function checkClaims(text, ctx) {
     if (PASS_CLAIM.test(s)) {
       const run = ctx.tests.filter((r) => r.t <= ctx.at).at(-1);
       if (!run) marks.push({ mark: "?", s, why: "no test or check run found" });
+      else if (run.pending) marks.push({ mark: "✗", s, why: `${run.shown} was still running in the background; its result wasn't in yet` });
       else if (!run.ok) marks.push({ mark: "✗", s, why: `the last run failed: ${run.shown}` });
       else {
         const after = ctx.edits.filter((e) => e.t > run.t && e.t <= ctx.at);
