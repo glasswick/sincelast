@@ -27,15 +27,26 @@ $ sincelast ack
 Acked up to 2026-10-31 09:02 (a18f4d2). Next time you'll see only what's new.
 ```
 
-## Use
+## Try it
+
+From inside a repo where you've run Claude Code:
 
 ```
-node sincelast.mjs [repo]          # the briefing (default: current folder)
-node sincelast.mjs ack [repo]      # mark what you were shown as seen
-node sincelast.mjs --since "3 hours ago"
+npx github:glasswick/sincelast
 ```
 
-One file, no dependencies, Node 18 or later.
+No install, no dependencies, Node 18 or later. It only reads, except for
+one small state file (see below). To keep it around:
+
+```
+npm install -g github:glasswick/sincelast
+sincelast                          # the briefing (default: current folder)
+sincelast ack                      # mark what you were shown as seen
+sincelast --since "3 hours ago"    # look further back
+sincelast path/to/other/repo
+```
+
+Or just copy `sincelast.mjs` anywhere and run `node sincelast.mjs`.
 
 ## What it does
 - **Observed:** commits since your last ack (by git ancestry, so rebased
