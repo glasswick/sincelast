@@ -115,11 +115,15 @@ export function analyze(entries) {
   const results = new Map(); // tool_use id -> { isError, text, t }
   const lastSaid = new Map(); // session -> { text, t }
   let lastEditAt = 0;
+  const edits = []; // { t, file }, for checking "tests pass" claims
   for (const e of entries) {
     for (const p of parts(e)) {
       if (e.type === "assistant" && p.type === "tool_use") {
         calls.set(p.id, { name: p.name, input: p.input ?? {}, t: e._t, session: e._session });
-        if (EDIT_TOOLS.has(p.name)) lastEditAt = Math.max(lastEditAt, e._t);
+        if (EDIT_TOOLS.has(p.name)) {
+          lastEditAt = Math.max(lastEditAt, e._t);
+          edits.push({ t: e._t, file: String(p.input?.file_path ?? p.input?.notebook_path ?? "a file").split("/").pop() });
+        }
       } else if (e.type === "assistant" && p.type === "text" && p.text?.trim()) {
         lastSaid.set(e._session, { text: p.text, t: e._t });
       } else if (e.type === "user" && p.type === "tool_result") {
@@ -163,10 +167,68 @@ export function analyze(entries) {
   return {
     lastTest: lastTest && { ...lastTest, stale: lastEditAt > lastTest.t },
     testCount: tests.length,
+    tests,
+    edits,
     blocked,
     claims: [...lastSaid].map(([session, s]) => ({ session, text: s.text, t: s.t })),
     needs,
   };
+}
+
+// ---------- receipts for claims ----------
+
+const CLAIM_SENTENCES = (text) =>
+  text
+    .replace(/\n{2,}/g, "\n")
+    .split("\n")
+    .flatMap((l) => l.replace(/^\s*([-*]|\d+\.)\s+/, "").split(/(?<=[.!?])\s+(?=[A-Z*`])/))
+    .map((s) => s.replace(/\*\*/g, "").trim())
+    .filter((s) => s.length > 3);
+
+const PASS_CLAIM = /\b(tests? (all |still )?pass(es|ed)?|all \d+ (tests )?pass|\d+ tests? pass|build (passes|passed|succeeds|succeeded)|lint (passes|is clean)|type ?check(s)? pass(es)?)\b/i;
+const CLEAN_CLAIM = /\b(working tree (is )?clean|nothing (is )?uncommitted|no uncommitted changes|git status (is )?clean)\b/i;
+const DONE_CLAIM = /\b(done|fixed|implemented|resolved|completed|works now|it works)\b/i;
+const HYPOTHETICAL = /\b(would|could|might|should)\b|^if\b/i;
+
+/**
+ * Check each claim in an agent's message against the evidence: ✓ a receipt
+ * was found, ✗ the evidence contradicts it, ? nothing here can check it.
+ * Only kinds git and the transcript decide exactly; never a guess.
+ * ctx: { repo, tests: [{t, ok, shown}], edits: [{t, file}], at, commits }
+ */
+export function checkClaims(text, ctx) {
+  const marks = [];
+  for (const s of CLAIM_SENTENCES(text)) {
+    if (HYPOTHETICAL.test(s)) continue;
+    const hashes = [...s.matchAll(/`([0-9a-f]{7,40})`/g)].map((m) => m[1]);
+    if (hashes.length && /\b(commit|committed|pushed|as)\b/i.test(s)) {
+      const pushedSaid = /\bpushed\b/i.test(s);
+      const bad = hashes.find((h) => git(ctx.repo, "cat-file", "-e", `${h}^{commit}`) === null);
+      if (bad) marks.push({ mark: "✗", s, why: `no commit ${bad} in this repo` });
+      else if (pushedSaid && hashes.some((h) => !(git(ctx.repo, "branch", "-r", "--contains", h) ?? "").trim()))
+        marks.push({ mark: "✗", s, why: "the commit exists but isn't on any remote branch" });
+      else marks.push({ mark: "✓", s, why: `commit ${hashes.join(", ")} exists${pushedSaid ? " and is pushed" : ""}` });
+      continue;
+    }
+    if (PASS_CLAIM.test(s)) {
+      const run = ctx.tests.filter((r) => r.t <= ctx.at).at(-1);
+      if (!run) marks.push({ mark: "?", s, why: "no test or check run found" });
+      else if (!run.ok) marks.push({ mark: "✗", s, why: `the last run failed: ${run.shown}` });
+      else {
+        const after = ctx.edits.filter((e) => e.t > run.t && e.t <= ctx.at);
+        if (after.length) marks.push({ mark: "✗", s, why: `${run.shown} passed, but ${after.at(-1).file} was edited after it` });
+        else marks.push({ mark: "✓", s, why: `${run.shown} passed, nothing edited after` });
+      }
+      continue;
+    }
+    if (CLEAN_CLAIM.test(s)) {
+      const dirty = (git(ctx.repo, "status", "--short") ?? "").trim();
+      marks.push(dirty ? { mark: "✗", s, why: `git status shows changes now: ${dirty.split("\n")[0].trim()}` } : { mark: "✓", s, why: "git status is clean now" });
+      continue;
+    }
+    if (DONE_CLAIM.test(s)) marks.push({ mark: "?", s, why: "no receipt" });
+  }
+  return marks;
 }
 
 // ---------- state ----------
@@ -229,9 +291,13 @@ export function brief(opts, now = Date.now()) {
   } else lines.push("  · no test runs recorded");
   if (a.blocked) lines.push(`  · ${a.blocked} command${a.blocked === 1 ? " was" : "s were"} blocked by a hook or permission rule`);
 
-  lines.push("", "Claimed (the agent's own words, not checked)");
+  lines.push("", "Claimed (the agent's own words, checked where the evidence can decide)");
   if (a.claims.length === 0) lines.push("  · nothing said");
-  for (const c of a.claims.slice(-3)) lines.push(`  · ${clip(c.text)}`);
+  for (const c of a.claims.slice(-3)) {
+    lines.push(`  · ${clip(c.text)}`);
+    const marks = checkClaims(c.text, { repo: opts.repo, tests: a.tests, edits: a.edits, at: c.t, commits: g.commits.length });
+    for (const m of marks.slice(0, 6)) lines.push(`      ${m.mark} "${clip(m.s, 70)}": ${m.why}`);
+  }
 
   lines.push("", `Needs you (${a.needs.length})`);
   if (a.needs.length === 0) lines.push("  · nothing found");
