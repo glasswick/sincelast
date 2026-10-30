@@ -130,8 +130,18 @@ Receipts are that evidence, kept.
 - **Transcript formats aren't a public contract** and may change.
 - **Claims are read in English only.** A "tests pass" written in another
   language gets no mark at all, not a wrong one.
+- **A receipt says your agent's check ran and passed after its last edit.
+  It does not say the code is right.** I tested this on 8,394 runs of four
+  coding agents on SWE-Bench Pro tasks (SWE-TaskFlow trajectories,
+  JetBrains Research): every run ended claiming success, 40-54% failed the
+  benchmark's hidden tests, and within the same task a run with a receipt
+  was no more often right than one whose check had gone stale (47 vs 45
+  discordant pairs). Receipts keep reports honest about what was checked;
+  what the check covered is still up to you. Write-up coming on
+  [glasswick.github.io](https://glasswick.github.io).
 - "Failed" means the tool result was marked as an error. "Test" means the
-  command looked like a test runner (npm test, pytest, go test, …).
+  command looked like a test runner (npm test, pytest, go test, …). Ad-hoc
+  checks (a script that exits 0) aren't counted yet.
 - Git can't show work that was made and thrown away before a commit.
 - Transcripts can hold secrets and untrusted text. This tool only reads and
   prints them, and never runs anything found inside.
