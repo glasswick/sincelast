@@ -69,6 +69,46 @@ test("a test run followed by edits is marked as maybe stale", () => {
   assert.equal(a.lastTest.stale, true);
 });
 
+// Cases found by the first run on a real repo's transcripts (2026-10-30).
+const entries = (list) => list.map((e) => ({ ...e, _t: Date.parse(e.timestamp), _session: "s1" }));
+
+test("a hook blocking a command is not a failure that needs you", () => {
+  const a = analyze(entries([
+    call(1, "h1", "Bash", { command: "python3 edit.py" }),
+    result(2, "h1", "PreToolUse:Bash hook error: blocked by policy", true),
+    call(3, "ok", "Bash", { command: "git status" }),
+    result(4, "ok", "clean"),
+  ]));
+  assert.equal(a.needs.length, 0);
+  assert.equal(a.blocked, 1);
+});
+
+test("a one-off failed command mid-session doesn't need you", () => {
+  const a = analyze(entries([
+    call(1, "l1", "Bash", { command: "ls missing.md" }),
+    result(2, "l1", "No such file or directory", true),
+    call(3, "ok", "Bash", { command: "git log -1" }),
+    result(4, "ok", "abc123"),
+  ]));
+  assert.equal(a.needs.length, 0);
+});
+
+test("the session's last command failing does need you", () => {
+  const a = analyze(entries([
+    call(1, "d1", "Bash", { command: "./deploy.sh" }),
+    result(2, "d1", "permission denied", true),
+  ]));
+  assert.equal(a.needs.length, 1);
+});
+
+test("a test run inside a longer shell line is shown as the test part", () => {
+  const a = analyze(entries([
+    call(1, "t1", "Bash", { command: "cat > LICENSE <<'EOF'\nMIT\nEOF\nnode --test test/ | grep ok" }),
+    result(2, "t1", "6 ok"),
+  ]));
+  assert.equal(a.lastTest.shown, "node --test");
+});
+
 test("a failure fixed later doesn't need you", () => {
   const a = analyze([
     call(1, "b1", "Bash", { command: "npm run build" }),
