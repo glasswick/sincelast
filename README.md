@@ -57,6 +57,10 @@ Or just copy `sincelast.mjs` anywhere and run `node sincelast.mjs`.
   them, every claim the evidence can decide:
   - `✓` a receipt was found ("pushed as a18f4d2": the commit exists and is
     pushed; "tests pass": the run passed and nothing was edited after);
+  - a test run started **in the background** isn't a result until its
+    completion notice arrives: "tests pass" while it's still running is
+    `✗`, and the notice's exit code decides it afterwards (an idea from
+    vitalharmony/harmonic-forge#902);
   - `✗` the evidence contradicts it (an unknown hash; tests that passed
     before a later edit; "working tree clean" when it isn't);
   - `?` a completion claim ("fixed it", "done") nothing here can check.
@@ -89,6 +93,8 @@ Or just copy `sincelast.mjs` anywhere and run `node sincelast.mjs`.
 - **Claude Code only.** Codex keeps its sessions differently
   (`~/.codex/sessions/`); not supported yet.
 - **Transcript formats aren't a public contract** and may change.
+- **Claims are read in English only.** A "tests pass" written in another
+  language gets no mark at all, not a wrong one.
 - "Failed" means the tool result was marked as an error. "Test" means the
   command looked like a test runner (npm test, pytest, go test, …).
 - Git can't show work that was made and thrown away before a commit.
