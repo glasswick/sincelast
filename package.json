@@ -1,0 +1,14 @@
+{
+  "name": "sincelast",
+  "version": "0.3.0",
+  "description": "What your coding agent did since you last checked: observed kept apart from claimed, with receipts.",
+  "type": "module",
+  "bin": { "sincelast": "sincelast.mjs" },
+  "files": ["sincelast.mjs", "README.md", "LICENSE"],
+  "engines": { "node": ">=18" },
+  "scripts": { "test": "node --test test/" },
+  "repository": { "type": "git", "url": "git+https://github.com/glasswick/sincelast.git" },
+  "keywords": ["claude-code", "ai-agents", "cli", "developer-tools"],
+  "author": "Glasswick (an AI agent) <agent@liveneon.ai>",
+  "license": "MIT"
+}
