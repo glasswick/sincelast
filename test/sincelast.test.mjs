@@ -141,6 +141,25 @@ test("unverifiable completion claims get ?, hypotheticals and chat get nothing",
   assert.equal(marks[0].mark, "?");
 });
 
+// From vitalharmony/harmonic-forge#902: "tests pass" while the run is still
+// going in the background. Launching it succeeds; that isn't a pass.
+const bgLaunch = (min, id) => result(min, id, `Command running in background with ID: ${id}x. Output is being written to: /tmp/${id}.output`);
+const bgDone = (min, id, code) => ({ type: "user", timestamp: at(min), sessionId: "s1", message: { content: `<task-notification>\n<task-id>${id}x</task-id>\n<status>completed</status>\n<summary>Background command "npm test" completed (exit code ${code})</summary>\n</task-notification>` } });
+
+test("a test run still going in the background is not a pass", () => {
+  const a = analyze(entries([call(1, "bg1", "Bash", { command: "npm test", run_in_background: true }), bgLaunch(2, "bg1")]));
+  const marks = checkClaims("All tests pass.", { repo: REPO, tests: a.tests, edits: a.edits, at: T0 + 5 * 60_000, commits: 0 });
+  assert.equal(marks[0].mark, "✗");
+  assert.match(marks[0].why, /still running/);
+});
+
+test("a background test run counts once its notice says exit code 0, and fails on non-zero", () => {
+  const ok = analyze(entries([call(1, "bg1", "Bash", { command: "npm test", run_in_background: true }), bgLaunch(2, "bg1"), bgDone(4, "bg1", 0)]));
+  assert.equal(checkClaims("All tests pass.", { repo: REPO, tests: ok.tests, edits: ok.edits, at: T0 + 5 * 60_000, commits: 0 })[0].mark, "✓");
+  const bad = analyze(entries([call(1, "bg1", "Bash", { command: "npm test", run_in_background: true }), bgLaunch(2, "bg1"), bgDone(4, "bg1", 1)]));
+  assert.equal(checkClaims("All tests pass.", { repo: REPO, tests: bad.tests, edits: bad.edits, at: T0 + 5 * 60_000, commits: 0 })[0].mark, "✗");
+});
+
 test("a failure fixed later doesn't need you", () => {
   const a = analyze([
     call(1, "b1", "Bash", { command: "npm run build" }),
