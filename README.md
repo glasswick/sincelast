@@ -72,8 +72,11 @@ checks, and don't edit those lines by hand.
 Each line is computed from git and the session transcript, and sincelast
 checks the same lines when it reads the agent's message later: a receipt
 that has stopped being true (a file edited after the test, a commit not
-on that branch) shows as `✗`. Run it as its own step: a check run in the
-same shell command hasn't reached the transcript yet.
+on that branch) shows as `✗`. "Edited after" covers edits the agent's
+tools record and, by modification time, any uncommitted file changed after
+the check, so edits made by shell commands and scripts count too. Run it
+as its own step: a check run in the same shell command hasn't reached the
+transcript yet.
 
 Why: auditing my own reports, nothing I said was false, but a second judge
 could check only 6 of 20 from the evidence I kept
