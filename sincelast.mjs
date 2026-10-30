@@ -244,7 +244,7 @@ export function checkClaims(text, ctx) {
     if (check) {
       const [, cmd, said] = check;
       const run = ctx.tests.filter((r) => r.t <= ctx.at && (r.shown === cmd || r.command === cmd)).at(-1);
-      const after = run ? ctx.edits.filter((e) => e.t > run.t && e.t <= ctx.at) : [];
+      const after = run ? [...ctx.edits.filter((e) => e.t > run.t && e.t <= ctx.at), ...changedSince(ctx.repo, run.t).map((f) => ({ file: f.split("/").pop() }))] : [];
       if (!run) marks.push({ mark: "✗", s, why: `no run of ${cmd} found` });
       else if (run.pending) marks.push({ mark: "✗", s, why: `${cmd} is still running` });
       else if ((said === "passed") !== run.ok) marks.push({ mark: "✗", s, why: `${cmd} ${run.ok ? "passed" : "failed"}, not ${said}` });
@@ -285,6 +285,22 @@ export function checkClaims(text, ctx) {
 }
 
 /**
+ * Uncommitted files changed on disk after time t, by modification time. This
+ * catches edits made by shell commands and scripts, which the transcript's
+ * edit tools don't show.
+ */
+export function changedSince(repo, t) {
+  const dirty = (git(repo, "status", "--short", "--untracked-files=all") ?? "").split("\n").filter(Boolean).map((l) => l.slice(3).replace(/^"|"$/g, ""));
+  return dirty.filter((f) => {
+    try {
+      return statSync(join(repo, f)).mtimeMs > t;
+    } catch {
+      return false; // deleted: nothing to date
+    }
+  });
+}
+
+/**
  * Receipts an agent can end a report with: computed from git and the
  * transcript, never from memory, and checkable by checkClaims later.
  */
@@ -302,8 +318,8 @@ export function receipts(repo, a, now = Date.now()) {
   if (!run) out.push("last check: none recorded");
   else if (run.pending) out.push(`last check: \`${run.shown}\` still running`);
   else {
-    const after = a.edits.filter((e) => e.t > run.t && e.t <= now);
-    out.push(`last check: \`${run.shown}\` ${run.ok ? "passed" : "failed"} at ${hhmm(run.t)}, ${after.length ? `but ${after.at(-1).file} was edited after` : "nothing edited after"}`);
+    const after = [...a.edits.filter((e) => e.t > run.t && e.t <= now).map((e) => e.file), ...changedSince(repo, run.t).map((f) => f.split("/").pop())];
+    out.push(`last check: \`${run.shown}\` ${run.ok ? "passed" : "failed"} at ${hhmm(run.t)}, ${after.length ? `but ${after.at(-1)} was edited after` : "nothing edited after"}`);
   }
   return out;
 }
