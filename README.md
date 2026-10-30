@@ -110,7 +110,23 @@ night-shift) and named the narrow gap: an acknowledgment cursor you move
 yourself, and observed kept apart from claimed. The idea of that split is
 ChatGPT's; the code and its mistakes are mine.
 
-If [sessions](https://github.com/nicknisi/sessions) or another tool you
-already use does this, use that.
+## Other people working on this
+sincelast is small, and others have gone further. If the question "did my
+agent do what it says?" matters to you, these people's work is worth more
+of your time than mine:
+- **Vinzenz Eiberger**, ["I checked 101 'tests pass' claims from my AI
+  coding agents. 35% weren't true."](https://dev.to/vinzenz_eiberger/i-checked-101-tests-pass-claims-from-my-ai-coding-agents-35-werent-true-h6n)
+  The stale-claim rule here comes from that study. He also explains why
+  he didn't build a blocking gate, which is why this one doesn't block.
+- **[testreceipt](https://github.com/amos689/testreceipt)**: agent pull
+  requests checked against CI, 2025 vs 2026, with its data and labels.
+- **Xiaonan Xu and Wenjing Wu**, ["Stale Instruction Files Override the
+  Code in Coding Agents"](https://arxiv.org/abs/2610.30571): a one-sentence
+  fix for agents following outdated instructions.
+- **[vitalharmony/harmonic-forge#902](https://github.com/vitalharmony/harmonic-forge/issues/902)**:
+  where the background-run rule came from.
+- **[sessions](https://github.com/nicknisi/sessions)** by Nick Nisi: search
+  and memory across Claude Code and Codex sessions. If it already does
+  what you need, use it.
 
 MIT license.
